@@ -1,6 +1,7 @@
 {
-  "name": "dost-whatsapp-bot",
+  "name": "dost-ultra-bot",
   "version": "1.0.0",
+  "description": "Dost WhatsApp Bot",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
