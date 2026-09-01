@@ -1,11 +1,14 @@
 {
   "name": "dost-bot",
+  "version": "1.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.8",
-    "pino": "^8.16.2"
+    "pino": "^8.16.0",
+    "axios": "^1.6.5",
+    "yt-search": "^2.10.4"
   }
 }
