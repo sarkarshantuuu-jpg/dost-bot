@@ -1,4 +1,5 @@
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys')
+const qrcode = require('qrcode-terminal')
 const P = require('pino')
 
 async function startBot() {
@@ -11,27 +12,12 @@ async function startBot() {
 
   sock.ev.on('creds.update', saveCreds)
 
-  if (!sock.authState.creds.registered) {
-    const phoneNumber = process.env.PHONE_NUMBER
-    if (phoneNumber) {
-      setTimeout(async () => {
-        try {
-          const code = await sock.requestPairingCode(phoneNumber)
-          console.log('================================')
-          console.log(`PAIRING CODE FOR ${phoneNumber}: ${code}`)
-          console.log('WhatsApp > Linked Devices > Link with phone number')
-          console.log('================================')
-        } catch (e) {
-          console.log('Error:', e.message)
-        }
-      }, 3000)
-    } else {
-      console.log('Set PHONE_NUMBER variable in Railway!')
-    }
-  }
-
   sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect } = update
+    const { connection, lastDisconnect, qr } = update
+    if (qr) {
+      console.log('--- SCAN THIS QR ---')
+      qrcode.generate(qr, { small: true })
+    }
     if (connection === 'close') {
       const shouldReconnect = lastDisconnect?.error?.output?.statusCode!== DisconnectReason.loggedOut
       if (shouldReconnect) startBot()
@@ -44,8 +30,8 @@ async function startBot() {
     const msg = m.messages[0]
     if (!msg.message || msg.key.fromMe) return
     const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
-    if (text.toLowerCase() === 'hi') {
-      await sock.sendMessage(msg.key.remoteJid, { text: 'Hello jaan! Dost bot online hai ❤️ Bina QR ke connect ho gaya!' })
+    if (text.toLowerCase() === 'hi' || text.toLowerCase() === 'hello') {
+      await sock.sendMessage(msg.key.remoteJid, { text: 'Hello jaan! Dost bot online hai ❤️' })
     }
   })
 }
