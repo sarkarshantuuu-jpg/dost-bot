@@ -8,9 +8,7 @@ async function startBot() {
     logger: P({ level: 'silent' }),
     printQRInTerminal: false
   })
-
   sock.ev.on('creds.update', saveCreds)
-
   if (!sock.authState.creds.registered) {
     const phoneNumber = process.env.PHONE_NUMBER
     if (phoneNumber) {
@@ -29,7 +27,6 @@ async function startBot() {
       console.log('Set PHONE_NUMBER variable in Railway!')
     }
   }
-
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect } = update
     if (connection === 'close') {
@@ -39,17 +36,13 @@ async function startBot() {
       console.log('Bot Connected! Dost ready')
     }
   })
-
   sock.ev.on('messages.upsert', async m => {
     const msg = m.messages[0]
     if (!msg.message || msg.key.fromMe) return
     const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
     if (text.toLowerCase() === 'hi') {
-      await sock.sendMessage(msg.key.remoteJid, { text: 'Hello jaan! Dost bot online hai ❤️ Bina QR ke connect ho gaya!' })
+      await sock.sendMessage(msg.key.remoteJid, { text: 'Hello jaan! Dost bot online hai ❤️' })
     }
   })
 }
-
-startBot()}
-
 startBot()
