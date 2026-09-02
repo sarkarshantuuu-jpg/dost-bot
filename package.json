@@ -4,8 +4,6 @@
   "scripts": { "start": "node index.js" },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.2",
-    "pino": "^8.17.2",
-    "sharp": "^0.33.2",
-    "openai": "^4.28.0"
+    "pino": "^8.17.2"
   }
 }
