@@ -8,17 +8,44 @@ function getMenu(){ try{ if(fs.existsSync("./custom_menu.txt")) return fs.readFi
 
 async function start(){
   const { state, saveCreds } = await useMultiFileAuthState("auth");
-  const sock = makeWASocket({ auth: state, logger: P({level:"silent"}), browser:["DOST","Chrome","1"] });
+  const sock = makeWASocket({
+    auth: state,
+    logger: P({level:"silent"}),
+    browser:["DOST","Chrome","1.0"],
+    printQRInTerminal: false
+  });
   sock.ev.on("creds.update", saveCreds);
 
+  // pairing code - 1 bar hi mango
   if(!state.creds.registered){
     const n = process.env.PHONE_NUMBER;
-    if(n){ setTimeout(async()=>{ try{ const c = await sock.requestPairingCode(n.replace(/\D/g,"")); console.log("PAIRING CODE: "+c); }catch(e){ console.log(e.message); } },3000); }
+    if(n){
+      setTimeout(async()=>{
+        try{
+          const c = await sock.requestPairingCode(n.replace(/\D/g,""));
+          console.log("==================================");
+          console.log("PAIRING CODE: "+c);
+          console.log("Is code ko 20 sec me WhatsApp me dalo");
+          console.log("WhatsApp > Linked Devices > Link with phone number");
+          console.log("==================================");
+        }catch(e){ console.log("Pair Error: "+e.message); }
+      },5000);
+    }
   }
 
   sock.ev.on("connection.update", (u)=>{
-    if(u.connection==="open") console.log("DOST ONLINE PREFIX "+PREFIX);
-    if(u.connection==="close" && u.lastDisconnect?.error?.output?.statusCode!==DisconnectReason.loggedOut) setTimeout(start,3000);
+    const {connection, lastDisconnect} = u;
+    if(connection==="open"){
+      console.log("DOST ONLINE - LINKED SUCCESSFULLY PREFIX "+PREFIX);
+    }
+    if(connection==="close"){
+      const status = lastDisconnect?.error?.output?.statusCode;
+      console.log("Connection Closed - status: "+status);
+      // agar logged out nahi hai to hi restart karo, warna naya code mat banao
+      if(status!== DisconnectReason.loggedOut){
+        setTimeout(start, 5000);
+      }
+    }
   });
 
   sock.ev.on("messages.upsert", async (m)=>{
@@ -44,9 +71,9 @@ async function start(){
       if(cmd==="setprefix"){ if(!isOwner) return; PREFIX=after.split(" ")[0]; fs.writeFileSync("./prefix.txt", PREFIX); return sock.sendMessage(jid,{text:"Prefix "+PREFIX}); }
       if(cmd==="help"||cmd==="menu"){
         const c=getMenu(); if(c) return sock.sendMessage(jid,{text:c.replace(/{prefix}/g,PREFIX)});
-        return sock.sendMessage(jid,{text:"DOST-ULTRA ONLINE\nPrefix: "+PREFIX+"\n\n.help\n.ping\n.setmenu <text>\n.setprefix <symbol>\n.getmenu\n.delmenu\n.tagall"});
+        return sock.sendMessage(jid,{text:"DOST-ULTRA ONLINE\nPrefix: "+PREFIX+"\n\n.help\n.ping\n.setmenu <text>\n.setprefix <symbol>\n.tagall"});
       }
-      if(cmd==="ping") return sock.sendMessage(jid,{text:"Pong - bot working!"});
+      if(cmd==="ping") return sock.sendMessage(jid,{text:"Pong - bot working! "+PREFIX+"help"});
       if(cmd==="tagall"){
         if(!jid.endsWith("@g.us")) return;
         const meta=await sock.groupMetadata(jid); const mentions=meta.participants.map(p=>p.id);
