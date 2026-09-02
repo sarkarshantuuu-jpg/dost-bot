@@ -1,8 +1,18 @@
 {
-  "name": "dost-bot",
+  "name": "dost-ultra",
+  "version": "1.0.0",
   "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.5",
-    "pino": "^8.16.0"
+    "@whiskeysockets/baileys": "^6.7.18",
+    "pino": "^9.6.0",
+    "sharp": "^0.34.3",
+    "axios": "^1.11.0",
+    "openai": "^5.12.2"
   }
 }
