@@ -1265,3 +1265,8 @@ async function startBot() {
         const quoted =
           msg.message
             ?.extendedTextMess
+    });
+  }
+}
+
+startBot()
