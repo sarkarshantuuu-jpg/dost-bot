@@ -127,6 +127,99 @@ async function startBot() {
 `🤖 *DOST BOT COMMANDS*
 
 ⚙️ BOT CONTROL
+.on          );
+          console.log("==============================");
+          console.log("PAIRING CODE:", code);
+          console.log("==============================");
+        } catch (e) {
+          console.log("Pairing Error:", e.message);
+        }
+      }, 3000);
+    }
+  }
+
+  sock.ev.on("connection.update", update => {
+    const { connection, lastDisconnect } = update;
+    if (connection === "open") {
+      console.log("✅ DOST BOT ONLINE 🔥");
+    }
+    if (connection === "close") {
+      const loggedOut =
+        lastDisconnect?.error?.output?.statusCode ===
+        DisconnectReason.loggedOut;
+      if (!loggedOut) {
+        console.log("🔄 Reconnecting...");
+        setTimeout(startBot, 3000);
+      }
+    }
+  });
+
+  sock.ev.on("messages.upsert", async ({ messages }) => {
+    const msg = messages?.[0];
+    if (!msg?.message || msg.key.fromMe) return;
+    const jid = msg.key.remoteJid;
+    const text =
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text ||
+      msg.message.imageMessage?.caption ||
+      msg.message.videoMessage?.caption ||
+      "";
+    if (!text) return;
+    const clean = text.trim();
+
+    if (
+      clean.toLowerCase() === "hi" ||
+      clean.toLowerCase() === "hello"
+    ) {
+      if (!BOT_ACTIVE) return;
+      await sock.sendMessage(jid, {
+        text: "Hello jaan! Dost bot online hai ❤️\n.help likho"
+      });
+      return;
+    }
+
+    if (!clean.startsWith(PREFIX)) return;
+
+    const parts = clean
+     .slice(PREFIX.length)
+     .trim()
+     .split(/\s+/);
+    const command = parts.shift()?.toLowerCase();
+    const args = parts;
+    const query = args.join(" ");
+
+    try {
+
+      // ON OFF COMMANDS
+      if (command === "off" || command === "bot off" || command === "stop") {
+        BOT_ACTIVE = false;
+        return sock.sendMessage(jid, {
+          text: "🔴 *BOT OFF* ho gaya hai.\nAb koi command kaam nahi karega.\nON karne ke liye *.on* likho."
+        });
+      }
+
+      if (command === "on" || command === "bot on" || command === "start") {
+        BOT_ACTIVE = true;
+        return sock.sendMessage(jid, {
+          text: "🟢 *BOT ON* ho gaya hai 🔥\nAb sab commands kaam karenge."
+        });
+      }
+
+      if (command === "bot" || command === "status") {
+        return sock.sendMessage(jid, {
+          text: `🤖 *BOT STATUS:* ${BOT_ACTIVE? "🟢 ON" : "🔴 OFF"}\n⏱️ Uptime: ${Math.floor((Date.now() - START_TIME)/60000)} min`
+        });
+      }
+
+      // IF BOT OFF, IGNORE ALL
+      if (!BOT_ACTIVE) return;
+
+      if (command === "help" || command === "menu") {
+        return sock.sendMessage(jid, {
+          text:
+`🤖 *DOST BOT COMMANDS*
+
+⚙️ BOT CONTROL
 .on mentions
           .map(
             (id, i) =>
