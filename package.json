@@ -1,10 +1,8 @@
 {
-  "name": "dost-ultra",
+  "name": "dost-bot",
   "main": "index.js",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.8",
-    "pino": "^8.17.2",
-    "sharp": "^0.33.3",
-    "axios": "^1.6.7"
+    "@whiskeysockets/baileys": "^6.7.5",
+    "pino": "^8.16.0"
   }
 }
