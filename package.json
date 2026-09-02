@@ -1,15 +1,3 @@
 {
-  "name": "dost-bot",
-  "main": "index.js",
-  "scripts": { "start": "node index.js" },
-  "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.2",
-    "axios": "^1.6.7",
-    "file-type": "^16.5.4",
-    "node-fetch": "^2.6.7",
-    "openai": "^4.28.0",
-    "pino": "^8.17.2",
-    "qrcode-terminal": "^0.12.0",
-    "sharp": "^0.33.2"
-  }
+  "name":"dost-ultra","version":"1.0.0","description":"DOST-ULTRA WhatsApp bot","main":"index.js","scripts":{"start":"node index.js"},"engines":{"node":">=20"},"dependencies":{"@whiskeysockets/baileys":"^7.0.0-rc.14","@hapi/boom":"^10.0.1","axios":"^1.11.0","form-data":"^4.0.4","jimp":"^1.6.0","pino":"^9.9.0","qrcode-terminal":"^0.12.0","sharp":"^0.34.3","ytdl-core":"^4.11.5"}
 }
