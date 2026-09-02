@@ -2,57 +2,80 @@ const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers
 const P = require("pino");
 const fs = require("fs");
 
-const PHONE = (process.env.PHONE_NUMBER || "").replace(/\D/g,"");
+const MY_NUMBER = "919229681078";
 const PREFIX = ".";
+const BOT_NAME = "DOST-ULTRA";
+const OWNER_NAME = "DOST";
 
-async function startBot() {
+const getText = (msg) => (msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || "").trim();
+
+async function startBot(){
   const { version } = await fetchLatestBaileysVersion();
   const { state, saveCreds } = await useMultiFileAuthState("./auth");
-  const logger = P({ level: "silent" });
+  const logger = P({level:"silent"});
 
   const sock = makeWASocket({
     version,
     auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
     logger,
-    browser: Browsers.macOS("Desktop"),
+    browser: Browsers.ubuntu("Chrome"),
     markOnlineOnConnect: true
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  if (!state.creds.registered && PHONE) {
-    console.log("Waiting for connection...");
-    await new Promise(r => setTimeout(r, 5000));
-    try {
-      const code = await sock.requestPairingCode(PHONE);
-      console.log(`\nPAIRING CODE FOR ${PHONE}: ${code}\n`);
-    } catch(e){ console.log("Pairing error: " + e.message); }
+  if(!state.creds.registered){
+    setTimeout(async()=>{
+      try{
+        if(sock.ws.readyState === 1){
+          const code = await sock.requestPairingCode(MY_NUMBER);
+          console.log(`\nCODE FOR ${MY_NUMBER}: ${code}\n`);
+        }
+      }catch(e){ console.log("Pairing retry: "+e.message); }
+    }, 8000);
   }
 
-  sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
-    if (connection === "open") console.log("✅ DOST-ULTRA CONNECTED ON RAILWAY");
-    if (connection === "close") {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode!== DisconnectReason.loggedOut;
-      if (!shouldReconnect) {
-        console.log("Logged out, deleting auth");
-        if(fs.existsSync("./auth")) fs.rmSync("./auth", {recursive:true, force:true});
+  sock.ev.on("connection.update", ({connection, lastDisconnect})=>{
+    if(connection==="open"){
+      console.log(`✅ ${BOT_NAME} CONNECTED FOR ${MY_NUMBER}`);
+      if(!state.creds.registered){
+        sock.requestPairingCode(MY_NUMBER).then(c=>console.log(`CODE: ${c}`)).catch(()=>{});
       }
-      if (shouldReconnect) setTimeout(startBot, 3000);
+    }
+    if(connection==="close"){
+      const reason = lastDisconnect?.error?.output?.statusCode;
+      if(reason !== DisconnectReason.loggedOut) setTimeout(startBot, 3000);
+      else { if(fs.existsSync("./auth")) fs.rmSync("./auth",{recursive:true,force:true}); }
     }
   });
 
-  sock.ev.on("messages.upsert", async ({messages}) => {
+  sock.ev.on("messages.upsert", async({messages})=>{
     const msg = messages[0]; if(!msg?.message || msg.key.fromMe) return;
-    const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").trim();
-    if(!text.startsWith(PREFIX)) return;
-    const cmd = text.slice(1).split(" ")[0].toLowerCase();
+    const text = getText(msg); if(!text.startsWith(PREFIX)) return;
+    const args = text.slice(1).trim().split(/ +/);
+    const cmd = args[0].toLowerCase();
+    const q = args.slice(1).join(" ");
     const jid = msg.key.remoteJid;
     const reply = (t) => sock.sendMessage(jid, {text:t}, {quoted:msg});
-    if(cmd==="ping") reply("🏓 Pong! Railway pe online hu");
-    if(cmd==="alive") reply("🤖 DOST-ULTRA Alive on Railway ✅");
-    if(cmd==="coin") reply(`🪙 ${Math.random()<0.5?"Heads":"Tails"}`);
-    if(cmd==="dice") reply(`🎲 ${Math.floor(Math.random()*6)+1}`);
-    if(cmd==="help"||cmd==="menu") reply("╭── DOST-ULTRA ──\n├.coin\n├.ping\n├.alive\n├.dice\n╰──────────");
-  });
-}
-startBot();
+
+    // === CORE COMMANDS ===
+    if(cmd==="ping"){ return reply(`🏓 Pong! ${Date.now()%1000}ms\nBot: ${MY_NUMBER}`); }
+    if(cmd==="alive"){ return reply(`🤖 *${BOT_NAME} Alive!*\n\n👑 Owner: ${OWNER_NAME}\n📞 Number: ${MY_NUMBER}\n⏱️ Uptime: ${Math.floor(process.uptime()/60)}m\n🟢 Status: Online`); }
+    if(cmd==="coin"){ return reply(`🪙 *${Math.random()<0.5?"Heads":"Tails"}*`); }
+    if(cmd==="dice"){ return reply(`🎲 Dice: *${Math.floor(Math.random()*6)+1}*`); }
+
+    // === MENU ===
+    if(cmd==="help"||cmd==="menu"){
+      return reply(
+`╭┈───〔 ${BOT_NAME} 〕┈───⊷
+├👑 Owner: ${OWNER_NAME}
+├📞 ${MY_NUMBER}
+├⚡ Prefix: ${PREFIX}
+├🟢 Mode: public
+╰────────────────⊷
+
+『 DOWNLOADER (18) 』
+⬡ ytmp3, ytmp4, song, video, fb, insta, tiktok, mediafire, gdrive, apk, pinterest, spotify, soundcloud, twitter, threads, igstory, play, ytsearch
+
+『 MEDIA (16) 』
+⬡ sticker, photo, toimg, tovideo, crop, caption, blur, mirror, rotate, gif, emojimix, quote, meme,
