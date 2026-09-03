@@ -1057,46 +1057,49 @@ async function startBot() {
           const meta =
             await sharp(buffer)
               .metadata
-              const meta = await sharp(buffer).metadata();
+              const width = meta.width || 500;
+const height = meta.height || 500;
 
-    const width = meta.width || 500;
-    const height = meta.height || 500;
+const text = args.join(" ")
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;");
 
-    const output = await sharp(buffer)
-      .resize({
-        width: Math.min(width, 1000),
-        height: Math.min(height, 1000),
-        fit: "inside"
-      })
-      .composite([
-        {
-          input: Buffer.from(`
-            <svg width="${Math.min(width, 1000)}" height="${Math.min(height, 1000)}">
-              <style>
-                .text {
-                  fill: white;
-                  font-size: 42px;
-                  font-family: Arial;
-                  font-weight: bold;
-                }
-              </style>
-              <text
-                x="50%"
-                y="90%"
-                text-anchor="middle"
-                class="text"
-              >${args.join(" ").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</text>
-            </svg>
-          `),
-          gravity: "south"
-        }
-      ])
-      .jpeg()
-      .toBuffer();
+const output = await sharp(buffer)
+  .resize({
+    width: Math.min(width, 1000),
+    height: Math.min(height, 1000),
+    fit: "inside"
+  })
+  .composite([
+    {
+      input: Buffer.from(`
+        <svg width="${Math.min(width, 1000)}" height="${Math.min(height, 1000)}">
+          <style>
+            .text {
+              fill: white;
+              font-size: 42px;
+              font-family: Arial;
+              font-weight: bold;
+            }
+          </style>
+          <text
+            x="50%"
+            y="90%"
+            text-anchor="middle"
+            class="text"
+          >${text}</text>
+        </svg>
+      `),
+      gravity: "south"
+    }
+  ])
+  .jpeg()
+  .toBuffer();
 
-    await sock.sendMessage(jid, {
-      image: output,
-      caption: "✅ Caption added!"
-    });
+await sock.sendMessage(jid, {
+  image: output,
+  caption: "✅ Caption added!"
+});
 
-    return;
+return;
