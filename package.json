@@ -1,11 +1,14 @@
 {
-  "name": "dost-bot",
+  "name": "dost-ultra",
   "version": "1.0.0",
   "main": "index.js",
-  "scripts": { "start": "node index.js" },
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.8",
-    "pino": "^8.17.2",
-    "qrcode-terminal": "^0.12.0"
+    "@whiskeysockets/baileys": "latest",
+    "pino": "latest",
+    "qrcode-terminal": "latest",
+    "sharp": "latest"
   }
 }
