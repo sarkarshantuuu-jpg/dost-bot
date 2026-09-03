@@ -1,1105 +1,313 @@
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  downloadMediaMessage,
-  Browsers
-} = require("@whiskeysockets/baileys");
+const{default:makeWASocket,useMultiFileAuthState,DisconnectReason,downloadMediaMessage,Browsers}=require("@whiskeysockets/baileys");
+const P=require("pino"),sharp=require("sharp"),ffmpegPath=require("ffmpeg-static"),fs=require("fs"),path=require("path");
+const{spawn}=require("child_process");
 
-const P = require("pino");
-const sharp = require("sharp");
-const ffmpegPath = require("ffmpeg-static");
+const PREFIX=".",START_TIME=Date.now();
+const OWNER=String(process.env.OWNER_NUMBER||"919999999999").replace(/\D/g,"");
+const AUTH_DIR="./auth",DATA_DIR="./data",TEMP_DIR="./temp";
+for(const d of[DATA_DIR,TEMP_DIR])if(!fs.existsSync(d))fs.mkdirSync(d,{recursive:true});
+const COMMANDS_FILE=path.join(DATA_DIR,"commands.json");
+let botEnabled=true,pairingRequested=false;
 
-const fs = require("fs");
-const path = require("path");
-const { spawn } = require("child_process");
+function loadCmd(){try{if(!fs.existsSync(COMMANDS_FILE))fs.writeFileSync(COMMANDS_FILE,"{}");return JSON.parse(fs.readFileSync(COMMANDS_FILE,"utf8"))}catch{return{}}}
+function saveCmd(c){fs.writeFileSync(COMMANDS_FILE,JSON.stringify(c,null,2))}
+let customCommands=loadCmd();
 
-// ===============================
-// CONFIG
-// ===============================
-
-const PREFIX = ".";
-const START_TIME = Date.now();
-
-const OWNER = String(
-  process.env.OWNER_NUMBER || "919999999999"
-).replace(/\D/g, "");
-
-const AUTH_DIR = "./auth";
-const DATA_DIR = "./data";
-const TEMP_DIR = "./temp";
-
-for (const dir of [DATA_DIR, TEMP_DIR]) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-}
-
-const COMMANDS_FILE = path.join(DATA_DIR, "commands.json");
-
-let botEnabled = true;
-let pairingRequested = false;
-
-// ===============================
-// CUSTOM COMMANDS
-// ===============================
-
-function loadCustomCommands() {
-  try {
-    if (!fs.existsSync(COMMANDS_FILE)) {
-      fs.writeFileSync(
-        COMMANDS_FILE,
-        JSON.stringify({}, null, 2)
-      );
-    }
-
-    return JSON.parse(
-      fs.readFileSync(COMMANDS_FILE, "utf8")
-    );
-  } catch {
-    return {};
-  }
-}
-
-function saveCustomCommands(commands) {
-  fs.writeFileSync(
-    COMMANDS_FILE,
-    JSON.stringify(commands, null, 2)
-  );
-}
-
-let customCommands = loadCustomCommands();
-
-// ===============================
-// HELP
-// ===============================
-
-const HELP = `
-╭┈───〔 DOST-ULTRA 〕┈───⊷
+const HELP=`╭┈───〔 DOST-ULTRA 〕┈───⊷
 ├✦ Prefix: .
 ├✦ Mode: Public
 ├✦ Status: 🟢 ONLINE
 ╰───────────────────────⊷
 
 『 🛠 MEDIA 』
-
 .sticker
-Reply to image/video
-
 .toimg
-Reply to sticker
-
 .tovideo
-Reply to sticker
-
 .crop
-Reply to image
-
 .caption <text>
-Reply to image
-
 .blur
-Reply to image
-
 .mirror
-Reply to image
-
 .rotate
-Reply to image
-
 .gif
-Reply to GIF/video
 
 『 👥 WHATSAPP 』
-
 .dp
-Show mentioned user's DP
-
 .mydp
-Show your DP
-
 .tagall
-Mention all members
-
 .admins
-Show group admins
-
 .groupinfo
-Show group information
-
 .link
-Get group invite link
 
 『 😂 FUN 』
-
 .roast
-Reply/mention someone
-
 .joke
-Random joke
-
 .meme
-Random meme text
-
 .fact
-Random fact
-
 .shayari
-Random shayari
-
 .quote
-Random quote
-
-.ship @user
-Fun ship result
-
-.8ball <question>
-Magic 8 Ball
-
+.ship
+.8ball
 .dice
-Roll dice
-
 .coin
-Flip coin
 
 『 🤖 BOT 』
-
 .help
-Show this menu
-
 .ping
-Check bot
-
 .alive
-Bot status
-
 .uptime
-Bot uptime
-
 .owner
-Owner contact
 
 『 👑 OWNER 』
-
 .bot on
-Turn bot ON
-
 .bot off
-Turn bot OFF
-
 .addcmd hello | Hello 👋
-Add custom command
-
 .delcmd hello
-Delete custom command
-
 .listcmd
-List custom commands
+╰───────────────────────⊷`;
 
-╰───────────────────────⊷
-`;
+const jidNum=j=>String(j||"").split("@")[0];
+const isOwner=s=>jidNum(s)===OWNER;
+const isGroup=j=>j?.endsWith("@g.us");
+const uptime=ms=>{let s=Math.floor(ms/1000),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return`${d}d ${h}h ${m}m ${s%60}s`};
 
+function quoted(m){return m?.extendedTextMessage?.contextInfo?.quotedMessage||m?.imageMessage?.contextInfo?.quotedMessage||m?.videoMessage?.contextInfo?.quotedMessage}
+function media(m){
+ if(!m)return null;
+ if(m.imageMessage)return["image",m.imageMessage];
+ if(m.videoMessage)return["video",m.videoMessage];
+ if(m.stickerMessage)return["sticker",m.stickerMessage];
+ return null
+}
+function text(m){return m?.message?.conversation||m?.message?.extendedTextMessage?.text||""}
+async function dl(sock,m){return downloadMediaMessage(m,"buffer",{}, {logger:P({level:"silent"}),reuploadRequest:sock.updateMediaMessage})}
+async function sticker(sock,j,b){let w=await sharp(b).resize(512,512,{fit:"contain",background:{r:0,g:0,b:0,alpha:0}}).webp({quality:85}).toBuffer();await sock.sendMessage(j,{sticker:w})}
+async function ff(args){return new Promise((res,rej)=>{let p=spawn(ffmpegPath,args),e="";p.stderr.on("data",d=>e+=d);p.on("close",c=>c?rej(Error(e||`FFmpeg ${c}`)):res())})}
 
-// ===============================
-// UTILITIES
-// ===============================
-
-function jidNumber(jid) {
-  return String(jid || "").split("@")[0];
+async function videoSticker(b){
+ let i=path.join(TEMP_DIR,`i${Date.now()}.mp4`),o=path.join(TEMP_DIR,`o${Date.now()}.webp`);
+ fs.writeFileSync(i,b);
+ await ff(["-y","-i",i,"-t","8","-vf","scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black@0","-an","-loop","0","-c:v","libwebp","-q:v","70",o]);
+ let r=fs.readFileSync(o);try{fs.unlinkSync(i);fs.unlinkSync(o)}catch{}return r
 }
 
-function isOwner(sender) {
-  return jidNumber(sender) === OWNER;
+async function stickerVideo(b){
+ let i=path.join(TEMP_DIR,`s${Date.now()}.webp`),o=path.join(TEMP_DIR,`v${Date.now()}.mp4`);
+ fs.writeFileSync(i,b);
+ await ff(["-y","-loop","1","-i",i,"-t","3","-vf","scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2","-c:v","libx264","-pix_fmt","yuv420p",o]);
+ let r=fs.readFileSync(o);try{fs.unlinkSync(i);fs.unlinkSync(o)}catch{}return r
 }
 
-function isGroup(jid) {
-  return jid && jid.endsWith("@g.us");
-}
+async function startBot(){
+ const{state,saveCreds}=await useMultiFileAuthState(AUTH_DIR);
+ const sock=makeWASocket({auth:state,logger:P({level:"silent"}),printQRInTerminal:false,browser:Browsers.macOS("Desktop")});
+ sock.ev.on("creds.update",saveCreds);
 
-function formatUptime(ms) {
-  const sec = Math.floor(ms / 1000);
+ sock.ev.on("connection.update",async u=>{
+  const{connection,lastDisconnect}=u;
+  if(connection==="connecting"&&!state.creds.registered&&!pairingRequested){
+   pairingRequested=true;
+   const phone=String(process.env.PHONE_NUMBER||"").replace(/\D/g,"");
+   if(!phone){console.log("❌ PHONE_NUMBER missing");pairingRequested=false;return}
+   try{
+    await new Promise(r=>setTimeout(r,1500));
+    let code=await sock.requestPairingCode(phone);
+    console.log("\n╔══════════════════════════════╗\n║ DOST-ULTRA PAIRING CODE      ║\n╠══════════════════════════════╣\n║ "+code+"\n╚══════════════════════════════╝\n");
+   }catch(e){pairingRequested=false;console.log("❌ Pairing Error:",e.message)}
+  }
+  if(connection==="open"){pairingRequested=false;console.log("✅ DOST-ULTRA CONNECTED")}
+  if(connection==="close"){
+   let c=lastDisconnect?.error?.output?.statusCode;
+   console.log("❌ Connection closed:",c);
+   if(c!==DisconnectReason.loggedOut){pairingRequested=false;setTimeout(()=>startBot().catch(console.error),3000)}
+   else console.log("⚠️ WhatsApp logout detected.")
+  }
+ });
 
-  const days = Math.floor(sec / 86400);
-  const hours = Math.floor((sec % 86400) / 3600);
-  const mins = Math.floor((sec % 3600) / 60);
-  const seconds = sec % 60;
+ sock.ev.on("messages.upsert",async({messages})=>{
+  const msg=messages[0];
+  if(!msg?.message||msg.key.fromMe)return;
+  const jid=msg.key.remoteJid;if(!jid)return;
+  const sender=msg.key.participant||jid;
+  let t=text(msg).trim();if(!t.startsWith(PREFIX))return;
+  let x=t.slice(PREFIX.length).trim();if(!x)return;
+  let a=x.split(/\s+/),cmd=a.shift().toLowerCase(),args=a.join(" ").trim();
 
-  return `${days}d ${hours}h ${mins}m ${seconds}s`;
-}
+  if(!botEnabled&&!isOwner(sender))return;
 
-function getQuotedMessage(message) {
-  return (
-    message?.extendedTextMessage?.contextInfo?.quotedMessage ||
-    message?.imageMessage?.contextInfo?.quotedMessage ||
-    message?.videoMessage?.contextInfo?.quotedMessage
-  );
-}
-
-function getQuotedParticipant(message) {
-  return (
-    message?.extendedTextMessage?.contextInfo?.participant ||
-    message?.imageMessage?.contextInfo?.participant ||
-    message?.videoMessage?.contextInfo?.participant
-  );
-}
-
-function getMentionedJid(message) {
-  const context =
-    message?.extendedTextMessage?.contextInfo;
-
-  return context?.mentionedJid?.[0] || null;
-}
-
-function getMediaMessage(message) {
-  if (!message) return null;
-
-  if (message.imageMessage) {
-    return {
-      type: "image",
-      message: message.imageMessage
-    };
+  if(customCommands[cmd]&&!["addcmd","delcmd","listcmd"].includes(cmd)){
+   await sock.sendMessage(jid,{text:customCommands[cmd]});return
   }
 
-  if (message.videoMessage) {
-    return {
-      type: "video",
-      message: message.videoMessage
-    };
-  }
+  try{
 
-  if (message.stickerMessage) {
-    return {
-      type: "sticker",
-      message: message.stickerMessage
-    };
-  }
+   if(cmd==="help"||cmd==="menu"){await sock.sendMessage(jid,{text:HELP});return}
 
-  if (message.documentMessage) {
-    return {
-      type: "document",
-      message: message.documentMessage
-    };
-  }
+   if(cmd==="ping"){
+    let s=Date.now();await sock.sendMessage(jid,{text:"🏓 Checking..."});
+    await sock.sendMessage(jid,{text:`🏓 *PONG!*\n⚡ Speed: ${Date.now()-s}ms`});return
+   }
 
-  return null;
-}
+   if(cmd==="alive"){await sock.sendMessage(jid,{text:`🤖 *DOST-ULTRA*\n🟢 ONLINE\n⚙️ Public\n🔧 Prefix: ${PREFIX}\n⏱️ ${uptime(Date.now()-START_TIME)}`});return}
+   if(cmd==="uptime"){await sock.sendMessage(jid,{text:`⏱️ *UPTIME*\n${uptime(Date.now()-START_TIME)}`});return}
 
-function getMessageContent(msg) {
-  return (
-    msg?.message?.conversation ||
-    msg?.message?.extendedTextMessage?.text ||
-    ""
-  );
-}
+   if(cmd==="owner"){
+    await sock.sendMessage(jid,{contacts:{displayName:"DOST-ULTRA OWNER",contacts:[{vcard:`BEGIN:VCARD\nVERSION:3.0\nFN:DOST-ULTRA OWNER\nTEL;type=CELL;type=VOICE:+${OWNER}\nEND:VCARD`}]}});return
+   }
 
-async function downloadMedia(sock, msg) {
-  return await downloadMediaMessage(
-    msg,
-    "buffer",
-    {},
-    {
-      logger: P({ level: "silent" }),
-      reuploadRequest: sock.updateMediaMessage
+   if(cmd==="bot"){
+    if(!isOwner(sender)){await sock.sendMessage(jid,{text:"❌ Owner only."});return}
+    if(args==="on"){botEnabled=true;await sock.sendMessage(jid,{text:"🟢 Bot ON"});return}
+    if(args==="off"){botEnabled=false;await sock.sendMessage(jid,{text:"🔴 Bot OFF"});return}
+   }
+
+   if(cmd==="addcmd"){
+    if(!isOwner(sender)){await sock.sendMessage(jid,{text:"❌ Owner only."});return}
+    let [n,...v]=args.split("|");n=n?.trim().toLowerCase();v=v.join("|").trim();
+    if(!n||!v){await sock.sendMessage(jid,{text:"Example: `.addcmd hello | Hello 👋`"});return}
+    customCommands[n]=v;saveCmd(customCommands);
+    await sock.sendMessage(jid,{text:`✅ Added .${n}`});return
+   }
+
+   if(cmd==="delcmd"){
+    if(!isOwner(sender)){await sock.sendMessage(jid,{text:"❌ Owner only."});return}
+    let n=args.toLowerCase();
+    if(!customCommands[n]){await sock.sendMessage(jid,{text:"❌ Command not found."});return}
+    delete customCommands[n];saveCmd(customCommands);
+    await sock.sendMessage(jid,{text:`✅ Deleted .${n}`});return
+   }
+
+   if(cmd==="listcmd"){
+    let c=Object.keys(customCommands);
+    await sock.sendMessage(jid,{text:c.length?`📋 Custom Commands:\n${c.map(x=>"."+x).join("\n")}`:"📋 No custom commands."});return
+   }
+
+   if(cmd==="sticker"){
+    let q=quoted(msg.message),target=q||msg.message,m=media(target);
+    if(!m){await sock.sendMessage(jid,{text:"🖼️ Image/video ko reply karke `.sticker` bhejo."});return}
+    let b=await dl(sock,{key:msg.key,message:target});
+    if(m[0]==="video")await sock.sendMessage(jid,{sticker:await videoSticker(b)});
+    else await sticker(sock,jid,b);
+    return
+   }
+
+   if(cmd==="toimg"){
+    let q=quoted(msg.message);
+    if(!q?.stickerMessage){await sock.sendMessage(jid,{text:"Sticker ko reply karke `.toimg` bhejo."});return}
+    let b=await dl(sock,{key:msg.key,message:q});
+    await sock.sendMessage(jid,{image:await sharp(b).png().toBuffer(),caption:"🖼️ Converted"});return
+   }
+
+   if(cmd==="tovideo"){
+    let q=quoted(msg.message);
+    if(!q?.stickerMessage){await sock.sendMessage(jid,{text:"Sticker ko reply karke `.tovideo` bhejo."});return}
+    let b=await dl(sock,{key:msg.key,message:q});
+    await sock.sendMessage(jid,{video:await stickerVideo(b),mimetype:"video/mp4"});return
+   }
+
+   if(["crop","blur","mirror","rotate","caption"].includes(cmd)){
+    let q=quoted(msg.message);
+    if(!q?.imageMessage){await sock.sendMessage(jid,{text:`Image ko reply karke \`.${cmd}${cmd==="caption"?" Your Text":""}\` bhejo.`});return}
+    if(cmd==="caption"&&!args){await sock.sendMessage(jid,{text:"Example: `.caption Hello 👋`"});return}
+    let b=await dl(sock,{key:msg.key,message:q}),img=sharp(b);
+
+    if(cmd==="crop"){
+     let m=await img.metadata(),s=Math.min(m.width||512,m.height||512);
+     b=await img.extract({left:Math.floor(((m.width||s)-s)/2),top:Math.floor(((m.height||s)-s)/2),width:s,height:s}).jpeg().toBuffer()
     }
-  );
-}
 
-async function sendSticker(sock, jid, buffer) {
-  const webp = await sharp(buffer)
-    .resize(512, 512, {
-      fit: "contain",
-      background: {
-        r: 0,
-        g: 0,
-        b: 0,
-        alpha: 0
-      }
-    })
-    .webp({ quality: 85 })
-    .toBuffer();
+    if(cmd==="blur")b=await img.blur(12).jpeg().toBuffer();
+    if(cmd==="mirror")b=await img.flop().jpeg().toBuffer();
+    if(cmd==="rotate")b=await img.rotate(90).jpeg().toBuffer();
 
-  await sock.sendMessage(jid, {
-    sticker: webp
-  });
-}
-
-async function runFFmpeg(args) {
-  return new Promise((resolve, reject) => {
-    const process = spawn(ffmpegPath, args);
-
-    let stderr = "";
-
-    process.stderr.on("data", data => {
-      stderr += data.toString();
-    });
-
-    process.on("close", code => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(
-          new Error(
-            stderr || `FFmpeg exited with ${code}`
-          )
-        );
-      }
-    });
-  });
-}
-
-async function videoToSticker(buffer) {
-  const input = path.join(
-    TEMP_DIR,
-    `input-${Date.now()}.mp4`
-  );
-
-  const output = path.join(
-    TEMP_DIR,
-    `output-${Date.now()}.webp`
-  );
-
-  fs.writeFileSync(input, buffer);
-
-  await runFFmpeg([
-    "-y",
-    "-i",
-    input,
-    "-t",
-    "8",
-    "-vf",
-    "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2:color=black@0",
-    "-an",
-    "-loop",
-    "0",
-    "-c:v",
-    "libwebp",
-    "-q:v",
-    "70",
-    output
-  ]);
-
-  const result = fs.readFileSync(output);
-
-  try {
-    fs.unlinkSync(input);
-    fs.unlinkSync(output);
-  } catch {}
-
-  return result;
-}
-
-async function stickerToImage(buffer) {
-  return await sharp(buffer)
-    .png()
-    .toBuffer();
-}
-
-async function stickerToVideo(buffer) {
-  const input = path.join(
-    TEMP_DIR,
-    `sticker-${Date.now()}.webp`
-  );
-
-  const output = path.join(
-    TEMP_DIR,
-    `video-${Date.now()}.mp4`
-  );
-
-  fs.writeFileSync(input, buffer);
-
-  await runFFmpeg([
-    "-y",
-    "-loop",
-    "1",
-    "-i",
-    input,
-    "-t",
-    "3",
-    "-vf",
-    "scale=512:512:force_original_aspect_ratio=decrease,pad=512:512:(ow-iw)/2:(oh-ih)/2",
-    "-c:v",
-    "libx264",
-    "-pix_fmt",
-    "yuv420p",
-    output
-  ]);
-
-  const result = fs.readFileSync(output);
-
-  try {
-    fs.unlinkSync(input);
-    fs.unlinkSync(output);
-  } catch {}
-
-  return result;
-}
-
-async function getGroupMetadata(sock, jid) {
-  return await sock.groupMetadata(jid);
-}
-
-function isAdmin(metadata, sender) {
-  const participant = metadata.participants.find(
-    p => p.id === sender
-  );
-
-  return (
-    participant &&
-    (participant.admin === "admin" ||
-      participant.admin === "superadmin")
-  );
-}
-
-async function requireGroupAdmin(sock, jid, sender) {
-  if (!isGroup(jid)) {
-    return false;
-  }
-
-  try {
-    const metadata = await getGroupMetadata(sock, jid);
-    return isAdmin(metadata, sender);
-  } catch {
-    return false;
-  }
-}
-
-
-// ===============================
-// BOT START
-// ===============================
-
-async function startBot() {
-  const { state, saveCreds } =
-    await useMultiFileAuthState(AUTH_DIR);
-
-  const sock = makeWASocket({
-    auth: state,
-
-    logger: P({
-      level: "silent"
-    }),
-
-    printQRInTerminal: false,
-
-    // IMPORTANT FOR PAIRING
-    browser: Browsers.macOS("Desktop")
-  });
-
-  sock.ev.on(
-    "creds.update",
-    saveCreds
-  );
-
-  // =============================
-  // CONNECTION
-  // =============================
-
-  sock.ev.on(
-    "connection.update",
-    async update => {
-      const {
-        connection,
-        lastDisconnect
-      } = update;
-
-      // -------------------------
-      // PAIRING
-      // -------------------------
-
-      if (
-        connection === "connecting" &&
-        !state.creds.registered &&
-        !pairingRequested
-      ) {
-        pairingRequested = true;
-
-        const phone = String(
-          process.env.PHONE_NUMBER || ""
-        ).replace(/\D/g, "");
-
-        if (!phone) {
-          console.log(
-            "❌ PHONE_NUMBER Railway Variables me missing hai."
-          );
-
-          pairingRequested = false;
-          return;
-        }
-
-        try {
-          // Small delay to avoid duplicate pairing request
-          await new Promise(resolve =>
-            setTimeout(resolve, 1500)
-          );
-
-          const code =
-            await sock.requestPairingCode(phone);
-
-          console.log("");
-          console.log(
-            "╔════════════════════════════════╗"
-          );
-          console.log(
-            "║     DOST-ULTRA PAIRING CODE    ║"
-          );
-          console.log(
-            "╠════════════════════════════════╣"
-          );
-          console.log(
-            `║  ${code}`
-          );
-          console.log(
-            "╚════════════════════════════════╝"
-          );
-          console.log("");
-
-          console.log(
-            "WhatsApp → Linked Devices → Link a Device → Link with phone number"
-          );
-
-          console.log("");
-        } catch (error) {
-          pairingRequested = false;
-
-          console.log(
-            "❌ Pairing Error:",
-            error?.message || error
-          );
-        }
-      }
-
-      // -------------------------
-      // CONNECTED
-      // -------------------------
-
-      if (connection === "open") {
-        pairingRequested = false;
-
-        console.log("");
-        console.log(
-          "╔════════════════════════════════╗"
-        );
-        console.log(
-          "║    ✅ DOST-ULTRA CONNECTED     ║"
-        );
-        console.log(
-          "╠════════════════════════════════╣"
-        );
-        console.log(
-          "║       BOT IS ONLINE 🟢         ║"
-        );
-        console.log(
-          "╚════════════════════════════════╝"
-        );
-        console.log("");
-      }
-
-      // -------------------------
-      // CLOSED
-      // -------------------------
-
-      if (connection === "close") {
-        const statusCode =
-          lastDisconnect?.error?.output
-            ?.statusCode;
-
-        console.log(
-          "❌ Connection closed:",
-          statusCode
-        );
-
-        if (
-          statusCode !==
-          DisconnectReason.loggedOut
-        ) {
-          pairingRequested = false;
-
-          console.log(
-            "🔄 Restarting in 3 seconds..."
-          );
-
-          setTimeout(() => {
-            startBot().catch(console.error);
-          }, 3000);
-        } else {
-          console.log(
-            "⚠️ WhatsApp logout detected."
-          );
-          console.log(
-            "Fresh auth/session se pair again karo."
-          );
-        }
-      }
+    if(cmd==="caption"){
+     let m=await img.metadata(),w=m.width||500,h=m.height||500;
+     let safe=args.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+     let svg=Buffer.from(`<svg width="${w}" height="${h}"><style>.c{fill:white;font-size:42px;font-family:Arial;font-weight:bold;paint-order:stroke;stroke:black;stroke-width:4px}</style><text x="50%" y="${h-40}" text-anchor="middle" class="c">${safe}</text></svg>`);
+     b=await img.composite([{input:svg,top:0,left:0}]).jpeg().toBuffer()
     }
-  );
 
-  // =============================
-  // MESSAGE HANDLER
-  // =============================
-
-  sock.ev.on(
-    "messages.upsert",
-    async ({ messages }) => {
-      const msg = messages[0];
-
-      if (!msg || !msg.message) {
-        return;
-      }
-
-      if (msg.key.fromMe) {
-        return;
-      }
-
-      const jid = msg.key.remoteJid;
-
-      if (!jid) {
-        return;
-      }
-
-      const sender =
-        msg.key.participant ||
-        jid;
-
-      const text =
-        getMessageContent(msg).trim();
-
-      if (!text.startsWith(PREFIX)) {
-        return;
-      }
-
-      const withoutPrefix =
-        text.slice(PREFIX.length).trim();
-
-      if (!withoutPrefix) {
-        return;
-      }
-
-      const parts =
-        withoutPrefix.split(/\s+/);
-
-      const command =
-        parts.shift().toLowerCase();
-
-      const args =
-        parts.join(" ").trim();
-
-      // =========================
-      // BOT OFF
-      // =========================
-
-      if (
-        !botEnabled &&
-        !isOwner(sender)
-      ) {
-        return;
-      }
-
-      // =========================
-      // CUSTOM COMMANDS
-      // =========================
-
-      if (
-        customCommands[command] &&
-        ![
-          "addcmd",
-          "delcmd",
-          "listcmd"
-        ].includes(command)
-      ) {
-        await sock.sendMessage(jid, {
-          text: customCommands[command]
-        });
-        return;
-      }
-
-      try {
-
-        // =======================
-        // HELP
-        // =======================
-
-        if (
-          command === "help" ||
-          command === "menu"
-        ) {
-          await sock.sendMessage(jid, {
-            text: HELP
-          });
-          return;
-        }
-
-        // =======================
-        // PING
-        // =======================
-
-        if (command === "ping") {
-          const start = Date.now();
-
-          await sock.sendMessage(jid, {
-            text: "🏓 Checking..."
-          });
-
-          const ping =
-            Date.now() - start;
-
-          await sock.sendMessage(jid, {
-            text:
-              `🏓 *PONG!*\n\n⚡ Speed: ${ping}ms`
-          });
-
-          return;
-        }
-
-        // =======================
-        // ALIVE
-        // =======================
-
-        if (command === "alive") {
-          await sock.sendMessage(jid, {
-            text:
-              `🤖 *DOST-ULTRA*\n\n` +
-              `🟢 Status: ONLINE\n` +
-              `⚙️ Mode: PUBLIC\n` +
-              `🔧 Prefix: ${PREFIX}\n` +
-              `⏱️ Uptime: ${formatUptime(
-                Date.now() - START_TIME
-              )}`
-          });
-
-          return;
-        }
-
-        // =======================
-        // UPTIME
-        // =======================
-
-        if (command === "uptime") {
-          await sock.sendMessage(jid, {
-            text:
-              `⏱️ *BOT UPTIME*\n\n${formatUptime(
-                Date.now() - START_TIME
-              )}`
-          });
-
-          return;
-        }
-
-        // =======================
-        // OWNER
-        // =======================
-
-        if (command === "owner") {
-          await sock.sendMessage(jid, {
-            contacts: {
-              displayName: "DOST-ULTRA OWNER",
-              contacts: [
-                {
-                  vcard:
-                    `BEGIN:VCARD\n` +
-                    `VERSION:3.0\n` +
-                    `FN:DOST-ULTRA OWNER\n` +
-                    `TEL;type=CELL;type=VOICE:+${OWNER}\n` +
-                    `END:VCARD`
-                }
-              ]
-            }
-          });
-
-          return;
-        }
-
-        // =======================
-        // STICKER
-        // =======================
-
-        if (command === "sticker") {
-
-          let targetMsg = msg.message;
-
-          const quoted =
-            getQuotedMessage(msg.message);
-
-          if (quoted) {
-            targetMsg = quoted;
-          }
-
-          const media =
-            getMediaMessage(targetMsg);
-
-          if (!media) {
-            await sock.sendMessage(jid, {
-              text:
-                "🖼️ Image/video ko reply karke `.sticker` bhejo."
-            });
-            return;
-          }
-
-          const fakeMsg = {
-            key: msg.key,
-            message: targetMsg
-          };
-
-          const buffer =
-            await downloadMedia(
-              sock,
-              fakeMsg
-            );
-
-          if (media.type === "image") {
-            await sendSticker(
-              sock,
-              jid,
-              buffer
-            );
-          }
-
-          else if (media.type === "video") {
-            const webp =
-              await videoToSticker(buffer);
-
-            await sock.sendMessage(jid, {
-              sticker: webp
-            });
-          }
-
-          else {
-            await sendSticker(
-              sock,
-              jid,
-              buffer
-            );
-          }
-
-          return;
-        }
-
-        // =======================
-        // TOIMG
-        // =======================
-
-        if (command === "toimg") {
-
-          const quoted =
-            getQuotedMessage(msg.message);
-
-          if (!quoted?.stickerMessage) {
-            await sock.sendMessage(jid, {
-              text:
-                "Sticker ko reply karke `.toimg` bhejo."
-            });
-            return;
-          }
-
-          const fakeMsg = {
-            key: msg.key,
-            message: quoted
-          };
-
-          const buffer =
-            await downloadMedia(
-              sock,
-              fakeMsg
-            );
-
-          const image =
-            await stickerToImage(buffer);
-
-          await sock.sendMessage(jid, {
-            image,
-            caption: "🖼️ Converted"
-          });
-
-          return;
-        }
-
-        // =======================
-        // TOVIDEO
-        // =======================
-
-        if (command === "tovideo") {
-
-          const quoted =
-            getQuotedMessage(msg.message);
-
-          if (!quoted?.stickerMessage) {
-            await sock.sendMessage(jid, {
-              text:
-                "Sticker ko reply karke `.tovideo` bhejo."
-            });
-            return;
-          }
-
-          const fakeMsg = {
-            key: msg.key,
-            message: quoted
-          };
-
-          const buffer =
-            await downloadMedia(
-              sock,
-              fakeMsg
-            );
-
-          const video =
-            await stickerToVideo(buffer);
-
-          await sock.sendMessage(jid, {
-            video,
-            mimetype: "video/mp4"
-          });
-
-          return;
-        }
-
-        // =======================
-        // CROP
-        // =======================
-
-        if (command === "crop") {
-
-          const quoted =
-            getQuotedMessage(msg.message);
-
-          if (!quoted?.imageMessage) {
-            await sock.sendMessage(jid, {
-              text:
-                "Image ko reply karke `.crop` bhejo."
-            });
-            return;
-          }
-
-          const fakeMsg = {
-            key: msg.key,
-            message: quoted
-          };
-
-          const buffer =
-            await downloadMedia(
-              sock,
-              fakeMsg
-            );
-
-          const meta =
-            await sharp(buffer)
-              .metadata();
-
-          const size =
-            Math.min(
-              meta.width || 512,
-              meta.height || 512
-            );
-
-          const left =
-            Math.floor(
-              ((meta.width || size) - size) / 2
-            );
-
-          const top =
-            Math.floor(
-              ((meta.height || size) - size) / 2
-            );
-
-          const cropped =
-            await sharp(buffer)
-              .extract({
-                left,
-                top,
-                width: size,
-                height: size
-              })
-              .jpeg()
-              .toBuffer();
-
-          await sock.sendMessage(jid, {
-            image: cropped,
-            caption: "✂️ Cropped"
-          });
-
-          return;
-        }
-
-        // =======================
-        // CAPTION
-        // =======================
-
-        if (command === "caption") {
-
-          const quoted =
-            getQuotedMessage(msg.message);
-
-          if (!quoted?.imageMessage) {
-            await sock.sendMessage(jid, {
-              text:
-                "Image ko reply karke `.caption Your Text` bhejo."
-            });
-            return;
-          }
-
-          if (!args) {
-            await sock.sendMessage(jid, {
-              text:
-                "Example: `.caption Hello 👋`"
-            });
-            return;
-          }
-
-          const fakeMsg = {
-            key: msg.key,
-            message: quoted
-          };
-
-          const buffer =
-            await downloadMedia(
-              sock,
-              fakeMsg
-            );
-
-          const meta =
-            await sharp(buffer)
-              .metadata
-              const width = meta.width || 500;
-const height = meta.height || 500;
-
-const text = args.join(" ")
-  .replace(/&/g, "&amp;")
-  .replace(/</g, "&lt;")
-  .replace(/>/g, "&gt;");
-
-const output = await sharp(buffer)
-  .resize({
-    width: Math.min(width, 1000),
-    height: Math.min(height, 1000),
-    fit: "inside"
-  })
-  .composite([
-    {
-      input: Buffer.from(`
-        <svg width="${Math.min(width, 1000)}" height="${Math.min(height, 1000)}">
-          <style>
-            .text {
-              fill: white;
-              font-size: 42px;
-              font-family: Arial;
-              font-weight: bold;
-            }
-          </style>
-          <text
-            x="50%"
-            y="90%"
-            text-anchor="middle"
-            class="text"
-          >${text}</text>
-        </svg>
-      `),
-      gravity: "south"
+    await sock.sendMessage(jid,{image:b,caption:`✅ ${cmd} done`});return
+   }
+
+   if(cmd==="gif"){
+    let q=quoted(msg.message);
+    if(!q?.videoMessage){await sock.sendMessage(jid,{text:"GIF/video ko reply karke `.gif` bhejo."});return}
+    let b=await dl(sock,{key:msg.key,message:q});
+    await sock.sendMessage(jid,{sticker:await videoSticker(b)});return
+   }
+
+   if(cmd==="joke"){await sock.sendMessage(jid,{text:"😂 Why did the computer go to the doctor?\nBecause it had a virus!"});return}
+   if(cmd==="meme"){let m=["When WiFi works: 😎","When WiFi stops: 💀","Me opening WhatsApp at 3AM: 👀"];await sock.sendMessage(jid,{text:m[Math.floor(Math.random()*m.length)]});return}
+   if(cmd==="fact"){let f=["Octopuses have three hearts 🐙","Honey can last for a very long time 🍯","A day on Venus is longer than its year 🪐"];await sock.sendMessage(jid,{text:"🧠 "+f[Math.floor(Math.random()*f.length)]});return}
+   if(cmd==="shayari"){await sock.sendMessage(jid,{text:"✨ Dil se nikli baat dil tak jaati hai,\nDosti hamesha muskurahat laati hai ❤️"});return}
+   if(cmd==="quote"){await sock.sendMessage(jid,{text:"💭 Keep going. Small steps still move you forward."});return}
+
+   if(cmd==="dice"){await sock.sendMessage(jid,{text:`🎲 You rolled: ${Math.floor(Math.random()*6)+1}`});return}
+   if(cmd==="coin"){await sock.sendMessage(jid,{text:`🪙 ${Math.random()<.5?"Heads":"Tails"}`});return}
+
+   if(cmd==="8ball"){
+    if(!args){await sock.sendMessage(jid,{text:"Example: `.8ball will I win?`"});return}
+    let r=["Yes ✅","No ❌","Maybe 🤔","Definitely! 🔥","Ask again later 😄"];
+    await sock.sendMessage(jid,{text:`🎱 ${r[Math.floor(Math.random()*r.length)]}`});return
+   }
+
+   if(cmd==="roast"){
+    await sock.sendMessage(jid,{text:"🔥 Roast: Tum itne slow ho ki loading screen bhi tumse impatient ho jaye 😂"});return
+   }
+
+   if(cmd==="ship"){
+    let q=msg.message?.extendedTextMessage?.contextInfo?.mentionedJid||[];
+    if(!q.length){await sock.sendMessage(jid,{text:"❤️ Kisi ko mention karo: `.ship @user`"});return}
+    await sock.sendMessage(jid,{text:`❤️ Compatibility: ${Math.floor(Math.random()*101)}%`});return
+   }
+
+   if(["dp","mydp"].includes(cmd)){
+    let target=cmd==="mydp"?sender:(msg.message?.extendedTextMessage?.contextInfo?.mentionedJid?.[0]||msg.message?.extendedTextMessage?.contextInfo?.participant);
+    if(!target){await sock.sendMessage(jid,{text:"User mention/reply karo."});return}
+    try{
+     let url=await sock.profilePictureUrl(target,"image");
+     await sock.sendMessage(jid,{image:{url},caption:"🖼️ Profile Photo"})
+    }catch{await sock.sendMessage(jid,{text:"❌ Profile photo available nahi hai."})}
+    return
+   }
+
+   if(["tagall","admins","groupinfo","link"].includes(cmd)){
+    if(!isGroup(jid)){await sock.sendMessage(jid,{text:"❌ Group only command."});return}
+    let md=await sock.groupMetadata(jid);
+
+    if(cmd==="tagall"){
+     let mentions=md.participants.map(p=>p.id);
+     await sock.sendMessage(jid,{text:`📢 *TAG ALL*\n\n${mentions.map(x=>"@"+jidNum(x)).join(" ")}`,mentions});return
     }
-  ])
-  .jpeg()
-  .toBuffer();
 
-await sock.sendMessage(jid, {
-  image: output,
-  caption: "✅ Caption added!"
-});
+    if(cmd==="admins"){
+     let ad=md.participants.filter(p=>p.admin);
+     await sock.sendMessage(jid,{text:"👑 *ADMINS*\n\n"+ad.map(x=>"@"+jidNum(x)).join("\n"),mentions:ad.map(x=>x.id)});return
+    }
 
-return;
+    if(cmd==="groupinfo"){
+     await sock.sendMessage(jid,{text:`👥 *GROUP INFO*\n\n📌 Name: ${md.subject}\n👤 Members: ${md.participants.length}\n🆔 ${jid}`});return
+    }
+
+    if(cmd==="link"){
+     if(!await requireAdmin(sock,jid,sender)){await sock.sendMessage(jid,{text:"❌ Admin only."});return}
+     let code=await sock.groupInviteCode(jid);
+     await sock.sendMessage(jid,{text:`🔗 https://chat.whatsapp.com/${code}`});return
+    }
+   }
+
+  }catch(e){
+   console.error("Command Error:",e);
+   await sock.sendMessage(jid,{text:`❌ Error: ${e.message||"Something went wrong"}`}).catch(()=>{});
+  }
+ });
+}
+
+async function requireAdmin(sock,jid,sender){
+ try{
+  let m=await sock.groupMetadata(jid),p=m.participants.find(x=>x.id===sender);
+  return !!(p?.admin)
+ }catch{return false}
+}
+
+startBot().catch(e=>console.error("❌ Bot Start Error:",e));
