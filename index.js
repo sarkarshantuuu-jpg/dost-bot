@@ -1,81 +1,51 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require("@whiskeysockets/baileys");
 const P = require("pino");
-const fs = require("fs");
-
 const MY_NUMBER = "919229681078";
 const PREFIX = ".";
-const BOT_NAME = "DOST-ULTRA";
-const OWNER_NAME = "DOST";
-
-const getText = (msg) => (msg.message?.conversation || msg.message?.extendedTextMessage?.text || msg.message?.imageMessage?.caption || "").trim();
 
 async function startBot(){
-  const { version } = await fetchLatestBaileysVersion();
-  const { state, saveCreds } = await useMultiFileAuthState("./auth");
-  const logger = P({level:"silent"});
+const {version} = await fetchLatestBaileysVersion();
+const {state, saveCreds} = await useMultiFileAuthState("./auth");
+const sock = makeWASocket({
+version,
+auth:{creds:state.creds, keys:makeCacheableSignalKeyStore(state.keys, P({level:"silent"}))},
+logger:P({level:"silent"}),
+browser:["Ubuntu","Chrome","22.04"]
+});
+sock.ev.on("creds.update", saveCreds);
 
-  const sock = makeWASocket({
-    version,
-    auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, logger) },
-    logger,
-    browser: Browsers.ubuntu("Chrome"),
-    markOnlineOnConnect: true
-  });
+if(!state.creds.registered){
+setTimeout(async()=>{
+try{
+const code = await sock.requestPairingCode(MY_NUMBER);
+console.log("CODE:"+code+" FOR:"+MY_NUMBER);
+}catch(e){console.log(e.message);}
+},7000);
+}
 
-  sock.ev.on("creds.update", saveCreds);
+sock.ev.on("connection.update",(u)=>{
+if(u.connection==="open") console.log("CONNECTED:"+MY_NUMBER);
+if(u.connection==="close"){
+let r = u.lastDisconnect?.error?.output?.statusCode;
+if(r!==DisconnectReason.loggedOut) setTimeout(startBot,3000);
+}
+});
 
-  if(!state.creds.registered){
-    setTimeout(async()=>{
-      try{
-        if(sock.ws.readyState === 1){
-          const code = await sock.requestPairingCode(MY_NUMBER);
-          console.log(`\nCODE FOR ${MY_NUMBER}: ${code}\n`);
-        }
-      }catch(e){ console.log("Pairing retry: "+e.message); }
-    }, 8000);
-  }
+sock.ev.on("messages.upsert",async(m)=>{
+const msg=m.messages[0];
+if(!msg?.message||msg.key.fromMe) return;
+let text=(msg.message.conversation||msg.message.extendedTextMessage?.text||"").trim();
+if(!text.startsWith(PREFIX)) return;
+let cmd=text.slice(1).split(" ")[0].toLowerCase();
+let jid=msg.key.remoteJid;
+let reply=(t)=>sock.sendMessage(jid,{text:t},{quoted:msg});
 
-  sock.ev.on("connection.update", ({connection, lastDisconnect})=>{
-    if(connection==="open"){
-      console.log(`✅ ${BOT_NAME} CONNECTED FOR ${MY_NUMBER}`);
-      if(!state.creds.registered){
-        sock.requestPairingCode(MY_NUMBER).then(c=>console.log(`CODE: ${c}`)).catch(()=>{});
-      }
-    }
-    if(connection==="close"){
-      const reason = lastDisconnect?.error?.output?.statusCode;
-      if(reason !== DisconnectReason.loggedOut) setTimeout(startBot, 3000);
-      else { if(fs.existsSync("./auth")) fs.rmSync("./auth",{recursive:true,force:true}); }
-    }
-  });
-
-  sock.ev.on("messages.upsert", async({messages})=>{
-    const msg = messages[0]; if(!msg?.message || msg.key.fromMe) return;
-    const text = getText(msg); if(!text.startsWith(PREFIX)) return;
-    const args = text.slice(1).trim().split(/ +/);
-    const cmd = args[0].toLowerCase();
-    const q = args.slice(1).join(" ");
-    const jid = msg.key.remoteJid;
-    const reply = (t) => sock.sendMessage(jid, {text:t}, {quoted:msg});
-
-    // === CORE COMMANDS ===
-    if(cmd==="ping"){ return reply(`🏓 Pong! ${Date.now()%1000}ms\nBot: ${MY_NUMBER}`); }
-    if(cmd==="alive"){ return reply(`🤖 *${BOT_NAME} Alive!*\n\n👑 Owner: ${OWNER_NAME}\n📞 Number: ${MY_NUMBER}\n⏱️ Uptime: ${Math.floor(process.uptime()/60)}m\n🟢 Status: Online`); }
-    if(cmd==="coin"){ return reply(`🪙 *${Math.random()<0.5?"Heads":"Tails"}*`); }
-    if(cmd==="dice"){ return reply(`🎲 Dice: *${Math.floor(Math.random()*6)+1}*`); }
-
-    // === MENU ===
-    if(cmd==="help"||cmd==="menu"){
-      return reply(
-`╭┈───〔 ${BOT_NAME} 〕┈───⊷
-├👑 Owner: ${OWNER_NAME}
-├📞 ${MY_NUMBER}
-├⚡ Prefix: ${PREFIX}
-├🟢 Mode: public
-╰────────────────⊷
-
-『 DOWNLOADER (18) 』
-⬡ ytmp3, ytmp4, song, video, fb, insta, tiktok, mediafire, gdrive, apk, pinterest, spotify, soundcloud, twitter, threads, igstory, play, ytsearch
-
-『 MEDIA (16) 』
-⬡ sticker, photo, toimg, tovideo, crop, caption, blur, mirror, rotate, gif, emojimix, quote, meme,
+if(cmd==="ping") return reply(`*PING*\nNumber:${MY_NUMBER}\nSpeed:${Date.now()%100}ms`);
+if(cmd==="alive") return reply(`*DOST-ULTRA ALIVE*\nOwner:${MY_NUMBER}\nBot: Online\nUptime:${Math.floor(process.uptime()/60)}m`);
+if(cmd==="owner") return reply(`Owner: wa.me/${MY_NUMBER}`);
+if(cmd==="coin") return reply(`Coin: ${Math.random()<0.5?"Heads":"Tails"}`);
+if(cmd==="dice") return reply(`Dice: ${Math.floor(Math.random()*6)+1}`);
+if(cmd==="uptime") return reply(`Uptime: ${Math.floor(process.uptime()/60)} min`);
+if(cmd==="roast") return reply("Tu ultra pro hai bhai 🔥");
+if(cmd==="joke") return reply("Pappu: Sir homework nahi kiya\nTeacher: kyu?\nPappu: Railway ne crash kara diya 😂");
+if(cmd==="shayari") return reply("Teri muskan pe duniya fida
