@@ -1,15 +1,11 @@
 {
-  "name": "dost-ultra",
-  "version": "2.0.0",
-  "description": "DOST-ULTRA WhatsApp Bot",
+  "name": "dost-bot",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
+  "scripts": { "start": "node index.js" },
   "dependencies": {
-    "@whiskeysockets/baileys": "latest",
-    "ffmpeg-static": "latest",
-    "pino": "latest",
-    "sharp": "latest"
+    "@whiskeysockets/baileys": "^6.7.8",
+    "@distube/ytdl-core": "^4.13.3",
+    "pino": "^8.19.0",
+    "sharp": "^0.33.3"
   }
 }
