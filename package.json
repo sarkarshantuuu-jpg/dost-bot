@@ -1,10 +1,17 @@
 {
-  "name": "dost-md",
+  "name": "dost-sticker-bot",
   "version": "1.0.0",
   "main": "index.js",
-  "scripts": { "start": "node index.js" },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.16",
-    "pino": "^8.17.2"
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "ffmpeg-static": "^5.2.0",
+    "pino": "^9.7.0",
+    "sharp": "^0.34.3"
   }
 }
